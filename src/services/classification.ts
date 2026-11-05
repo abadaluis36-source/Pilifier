@@ -17,11 +17,10 @@ import type { Tensor } from '@tensorflow/tfjs-core';
 import type { TFLiteModel } from '@tensorflow/tfjs-tflite';
 
 /**
- * TFLite WASM runtime files live in the package's `wasm/` directory
- * (not `dist/`, which only contains the JS bindings).
+ * TFLite WASM runtime files are self-hosted from `public/tflite-wasm/` so the
+ * classifier works offline (the service worker precaches them).
  */
-const TFLITE_WASM_PATH =
-  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/wasm/';
+const TFLITE_WASM_PATH = '/tflite-wasm/';
 
 export interface Prediction {
   label: string;

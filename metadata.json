@@ -1,0 +1,8 @@
+{
+  "name": "PILIFIER — Simple Pili Variety Classifier",
+  "description": "Minimalist, mobile-first agricultural AI camera app for capturing and classifying Pili nut varieties (Lanuza, Laysa, Unknown Variety, Unknown Object) with an extensible TensorFlow Lite service interface.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

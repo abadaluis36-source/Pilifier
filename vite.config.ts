@@ -9,6 +9,12 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        // tfjs-tflite alpha.10 ships a broken ESM entry (missing
+        // dist/tflite_web_api_client.js). Use the self-contained bundle instead.
+        '@tensorflow/tfjs-tflite': path.resolve(
+          __dirname,
+          'node_modules/@tensorflow/tfjs-tflite/dist/tf-tflite.fesm.js'
+        ),
       },
     },
     server: {

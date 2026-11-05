@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "postinstall": "echo 'Dependencies installed'"
+    "postinstall": "echo 'Triggering new Vercel build v2'"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

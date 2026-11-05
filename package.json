@@ -17,6 +17,8 @@
     "lucide-react": "^0.546.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-tflite": "^0.0.1-alpha.10",
     "vite": "^8.3.0",
     "express": "^4.21.2",
     "dotenv": "^17.2.3",

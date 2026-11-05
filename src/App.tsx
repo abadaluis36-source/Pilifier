@@ -55,16 +55,14 @@ export default function App() {
 
     try {
       // Call typed classification service
-      // As requested: the actual service method is left unimplemented for Cursor integration
       const result = await defaultClassifier.classifyImage(capturedFile);
       setClassificationResult(result);
       setCurrentStep('result');
     } catch (err: any) {
-      console.info('ClassificationService note:', err.message);
-      // For developer testing before Cursor binds .tflite weights:
-      const isLaysa = capturedFile.name?.toLowerCase().includes('laysa');
-      setClassificationResult(isLaysa ? SAMPLE_PREVIEWS.laysa : SAMPLE_PREVIEWS.lanuza);
-      setCurrentStep('result');
+      console.error('Classification failed:', err.message);
+      // Alert the user or handle error state
+      alert(`Classification error: ${err.message}`);
+      setCurrentStep('preview');
     }
   };
 

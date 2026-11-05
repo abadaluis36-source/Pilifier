@@ -13,6 +13,12 @@
  *    output tensor into the exact result screen data.
  */
 
+import * as tf from '@tensorflow/tfjs';
+import * as tflite from '@tensorflow/tfjs-tflite';
+
+// Set WASM path for TFLite
+tflite.setWasmPath('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/dist/');
+
 export interface Prediction {
   label: string;
   index: number;
@@ -256,14 +262,49 @@ export function createClassificationResultFromProbabilities(
  * Default production service stub awaiting TensorFlow Lite model integration.
  */
 export class TFLiteClassificationService implements ClassificationService {
+  private model: tflite.TFLiteModel | null = null;
+  private readonly MODEL_URL = '/model_unquant.tflite';
+
+  /**
+   * Loads the TFLite model if not already loaded.
+   */
+  private async ensureModelLoaded() {
+    if (!this.model) {
+      try {
+        this.model = await tflite.loadTFLiteModel(this.MODEL_URL);
+      } catch (error) {
+        console.error('Failed to load TFLite model:', error);
+        throw new Error('MODEL_LOAD_FAILED: Ensure model_unquant.tflite is in the public folder.');
+      }
+    }
+  }
+
   /**
    * Classify an image file using MobileNetV2 TensorFlow Lite.
-   * Paste your trained model runner here or supply the model file.
    */
-  async classifyImage(_file: File): Promise<ClassificationResult> {
-    throw new Error(
-      'TFLITE_NOT_INTEGRATED: Ready for model! Paste your trained TF model code or provide the .tflite file in src/services/classification.ts.'
-    );
+  async classifyImage(file: File): Promise<ClassificationResult> {
+    try {
+      await this.ensureModelLoaded();
+      if (!this.model) throw new Error('Model initialization failed');
+
+      // 1. Preprocess the image to [224, 224, 3] Float32 tensor
+      const inputData = await preprocessImageForMobileNet(file);
+      const inputTensor = tf.tensor(inputData, [1, 224, 224, 3]);
+
+      // 2. Run inference
+      const outputTensor = this.model.predict(inputTensor) as tf.Tensor;
+      const probabilities = await outputTensor.data();
+
+      // 3. Cleanup tensors
+      inputTensor.dispose();
+      outputTensor.dispose();
+
+      // 4. Map probabilities to classification result
+      return createClassificationResultFromProbabilities(Array.from(probabilities));
+    } catch (err: any) {
+      console.error('Classification error:', err);
+      throw err;
+    }
   }
 }
 

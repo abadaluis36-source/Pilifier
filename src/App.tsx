@@ -32,6 +32,10 @@ export default function App() {
     setCapturedFile(file);
     setPreviewUrl(url);
     setCurrentStep('preview');
+
+    // Warm up the TFLite runtime/model while the user reviews the photo so
+    // pressing "Identify" does not have to download everything from scratch.
+    void defaultClassifier.preload();
   };
 
   // Transition: Retake / Go back from preview
@@ -50,13 +54,16 @@ export default function App() {
 
     setCurrentStep('loading');
 
-    // Smooth scan duration matching screenshot instructions ("Wait a few seconds...")
-    await new Promise((resolve) => setTimeout(resolve, 1800));
+    // Keep the scan animation visible briefly, but run it in parallel with
+    // inference instead of adding a fixed delay on top of it.
+    const minimumScanTime = new Promise((resolve) => setTimeout(resolve, 1800));
 
     try {
-      // Call typed classification service
-      const result = await defaultClassifier.classifyImage(capturedFile);
-      setClassificationResult(result);
+      const [result] = await Promise.all([
+        defaultClassifier.classifyImage(capturedFile),
+        minimumScanTime,
+      ]);
+      setClassificationResult(result as ClassificationResult);
       setCurrentStep('result');
     } catch (err: any) {
       console.error('Classification failed:', err.message);

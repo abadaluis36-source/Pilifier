@@ -13,11 +13,15 @@
  *    output tensor into the exact result screen data.
  */
 
-import * as tf from '@tensorflow/tfjs';
-import * as tflite from '@tensorflow/tfjs-tflite';
+import type { Tensor } from '@tensorflow/tfjs-core';
+import type { TFLiteModel } from '@tensorflow/tfjs-tflite';
 
-// Set WASM path for TFLite
-tflite.setWasmPath('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/dist/');
+/**
+ * TFLite WASM runtime files live in the package's `wasm/` directory
+ * (not `dist/`, which only contains the JS bindings).
+ */
+const TFLITE_WASM_PATH =
+  'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@0.0.1-alpha.10/wasm/';
 
 export interface Prediction {
   label: string;
@@ -220,7 +224,10 @@ export async function preprocessImageForMobileNet(
       }
       resolve(floatArray);
     };
-    img.onerror = reject;
+    img.onerror = () => {
+      URL.revokeObjectURL(img.src);
+      reject(new Error('Unable to decode the selected image.'));
+    };
     img.src = URL.createObjectURL(file);
   });
 }
@@ -259,23 +266,65 @@ export function createClassificationResultFromProbabilities(
 }
 
 /**
- * Default production service stub awaiting TensorFlow Lite model integration.
+ * TFLite-backed classifier for the bundled MobileNetV2 model.
+ *
+ * The TensorFlow packages are imported lazily so the initial app bundle stays
+ * small and the welcome/camera screens render without delay.
  */
 export class TFLiteClassificationService implements ClassificationService {
-  private model: tflite.TFLiteModel | null = null;
+  private model: TFLiteModel | null = null;
+  private loadPromise: Promise<TFLiteModel> | null = null;
+  private backendReady = false;
   private readonly MODEL_URL = '/model_unquant.tflite';
 
+  private async ensureBackend() {
+    if (this.backendReady) return;
+    const tf = await import('@tensorflow/tfjs-core');
+    await import('@tensorflow/tfjs-backend-cpu');
+    await tf.setBackend('cpu');
+    this.backendReady = true;
+  }
+
+  private async loadModel(): Promise<TFLiteModel> {
+    const tflite = await import('@tensorflow/tfjs-tflite');
+    tflite.setWasmPath(TFLITE_WASM_PATH);
+    return tflite.loadTFLiteModel(this.MODEL_URL);
+  }
+
   /**
-   * Loads the TFLite model if not already loaded.
+   * Loads the TFLite model (and WASM runtime) if not already loaded.
+   * Concurrent callers share the same in-flight promise.
    */
-  private async ensureModelLoaded() {
-    if (!this.model) {
-      try {
-        this.model = await tflite.loadTFLiteModel(this.MODEL_URL);
-      } catch (error) {
-        console.error('Failed to load TFLite model:', error);
-        throw new Error('MODEL_LOAD_FAILED: Ensure model_unquant.tflite is in the public folder.');
-      }
+  private ensureModelLoaded(): Promise<TFLiteModel> {
+    if (this.model) return Promise.resolve(this.model);
+
+    if (!this.loadPromise) {
+      this.loadPromise = this.loadModel()
+        .then((model) => {
+          this.model = model;
+          return model;
+        })
+        .catch((error) => {
+          this.loadPromise = null;
+          console.error('Failed to load TFLite model:', error);
+          throw new Error(
+            'MODEL_LOAD_FAILED: Could not load the TFLite runtime or model. ' +
+              'Check your internet connection and confirm model_unquant.tflite is in the public folder.'
+          );
+        });
+    }
+
+    return this.loadPromise;
+  }
+
+  /**
+   * Warm up the runtime while the user is reviewing their photo.
+   */
+  async preload(): Promise<void> {
+    try {
+      await Promise.all([this.ensureBackend(), this.ensureModelLoaded()]);
+    } catch {
+      // The real error is surfaced when classifyImage runs.
     }
   }
 
@@ -284,23 +333,36 @@ export class TFLiteClassificationService implements ClassificationService {
    */
   async classifyImage(file: File): Promise<ClassificationResult> {
     try {
-      await this.ensureModelLoaded();
-      if (!this.model) throw new Error('Model initialization failed');
+      const [model] = await Promise.all([
+        this.ensureModelLoaded(),
+        this.ensureBackend(),
+      ]);
 
-      // 1. Preprocess the image to [224, 224, 3] Float32 tensor
-      const inputData = await preprocessImageForMobileNet(file);
-      const inputTensor = tf.tensor(inputData, [1, 224, 224, 3]);
+      // Read the expected input size from the model itself instead of
+      // assuming 224x224.
+      const inputShape = model.inputs?.[0]?.shape ?? [1, 224, 224, 3];
+      const height = inputShape[1] > 0 ? inputShape[1] : 224;
+      const width = inputShape[2] > 0 ? inputShape[2] : 224;
+
+      // 1. Preprocess the image to [1, height, width, 3]
+      const inputData = await preprocessImageForMobileNet(file, width, height);
+      const tf = await import('@tensorflow/tfjs-core');
+      const inputTensor = tf.tensor(inputData, [1, height, width, 3]);
 
       // 2. Run inference
-      const outputTensor = this.model.predict(inputTensor) as tf.Tensor;
-      const probabilities = await outputTensor.data();
+      let outputTensor: Tensor | undefined;
+      try {
+        outputTensor = model.predict(inputTensor) as Tensor;
+        const probabilities = await outputTensor.data();
 
-      // 3. Cleanup tensors
-      inputTensor.dispose();
-      outputTensor.dispose();
-
-      // 4. Map probabilities to classification result
-      return createClassificationResultFromProbabilities(Array.from(probabilities));
+        // 3. Map probabilities to classification result
+        return createClassificationResultFromProbabilities(
+          Array.from(probabilities)
+        );
+      } finally {
+        inputTensor.dispose();
+        outputTensor?.dispose();
+      }
     } catch (err: any) {
       console.error('Classification error:', err);
       throw err;
@@ -310,3 +372,4 @@ export class TFLiteClassificationService implements ClassificationService {
 
 // Singleton instance ready for app injection
 export const defaultClassifier = new TFLiteClassificationService();
+
